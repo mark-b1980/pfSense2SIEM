@@ -39,9 +39,15 @@ To ingest data, we need to decode the messages. Thatfor we need to add this into
 </decoder>
 
 <decoder name="pfsense-suricata">
-  <prematch>suricata</prematch>
-  <regex type="pcre2">\d+\s+(\d+-\d+-\d+T\d+:\d+:\d+.\d+\+\d+:\d+)\s+(pfSense\S+)\s+suricata\s+\d+\s+-\s+-\s+\[\d+:\d+:\d+\]\s+(.+)\s+{(\S+)}\s+(\S+):(\d+)\s+->\s+(\S+):(\d+)</regex>
+  <prematch type="pcre2">suricata.[0-9]+</prematch>
+  <regex type="pcre2">\d+\s+(\d+-\d+-\d+T\d+:\d+:\d+.\d+\+\d+:\d+)\s+(pfSense\S+)\s+suricata\s+\d+\s+-\s+-\s+\[\d+:\d+:\d+\]\s+(.+)\s+{(\w+)}\s+(\S+):(\d+)\s+->\s+(\S+):(\d+)</regex>
   <order>date,host,message,protocol,srcip,srcport,dstip,dstport</order>
+</decoder>
+
+<decoder name="pfsense-conf-change">
+  <prematch>Configuration Change</prematch>
+  <regex type="pcre2">\d+\s+(\d+-\d+-\d+T\d+:\d+:\d+.\d+\+\d+:\d+)\s+(pfSense\S+)\s+php-fpm\s+\d+\s+-\s+-\s+(\S+)\s+(.+):\s+(\w+)@(\S+)\s\(.*\):\s+(.+)</regex>
+  <order>date,host,url,action,user,srcip,message</order>
 </decoder>
 ```
 
@@ -51,26 +57,46 @@ Other events like failed logins where picked up and propperly handled as an aler
 
 ## Rules
 
-Wazuh stores by default only relevant messages - after decoding the messages we need to create rules to store and alert on all blocked connections. Thatfor we need to add the following code to `var/ossec/etc/rules/local_rules.xml`:
+Wazuh stores by default only relevant messages - after decoding the messages we need to create rules to store and alert on all blocked connections and all suricata alerts. Thatfor we need to add the following code to `var/ossec/etc/rules/local_rules.xml`:
 
 ```xml
-<!-- Rule to alert on blocked incoming connections -->
 <group name="local,remote,syslog,firewall">
-   <rule id="100003" level="6">
-      <decoded_as>pfsense-filterlog-ipv4</decoded_as>
-      <match>,block,</match>
-      <description>Blocked incoming connection</description>
-      <group>firewall,</group>
-   </rule>
-</group>
-<group name="local,remote,syslog,firewall">
-   <rule id="100004" level="6">
-      <decoded_as>pfsense-filterlog-ipv6</decoded_as>
-      <match>,block,</match>
-      <description>Blocked incoming connection</description>
-      <group>firewall,</group>
-   </rule>
+  
+  <!-- Rules to alert on blocked incoming connections -->
+  <rule id="100003" level="6">
+    <decoded_as>pfsense-filterlog-ipv4</decoded_as>
+    <match>,block,</match>
+    <description>Blocked incoming connection</description>
+    <group>firewall,</group>
+  </rule>
+
+  <rule id="100004" level="6">
+    <decoded_as>pfsense-filterlog-ipv6</decoded_as>
+    <match>,block,</match>
+    <description>Blocked incoming connection</description>
+    <group>firewall,</group>
+  </rule>
+
+  <!-- Rule to alert on all suricata alerts -->
+  <rule id="100005" level="6">
+    <decoded_as>pfsense-suricata</decoded_as>
+    <match>SURICATA</match>
+    <description>Suricata alert</description>
+    <group>firewall,ids,</group>
+  </rule>
+
+  <!-- Rule to alert on pfSense config change -->
+  <rule id="100006" level="3">
+    <decoded_as>pfsense-conf-change</decoded_as>
+    <match>Configuration Change</match>
+    <description>pfSense Configuration Change</description>
+    <group>firewall,</group>
+  </rule>
+
 </group>
 ```
 
 After that, we can restart the wazuh manager with `systemctl restart wazuh-manager`
+
+In case you get to much benign suricata alerts like `SURICATA QUIC failed decrypt` - add those alerts to the excude list.
+
